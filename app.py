@@ -43,37 +43,47 @@ with col1:
     st.subheader("2D Architectural Floor Plan")
     
     fig, ax = plt.subplots(figsize=(8.5, 6.5))
-    ax.set_xlim(-0.6, room_l + 0.6)
-    ax.set_ylim(-0.6, room_w + 0.6)
+    ax.set_xlim(-0.8, room_l + 0.8)
+    ax.set_ylim(-0.8, room_w + 0.8)
     ax.set_aspect('equal')
     ax.set_facecolor('#FAFAFA')
 
     # Room Perimeter
     ax.add_patch(patches.Rectangle((0, 0), room_l, room_w, fill=False, edgecolor='#263238', linewidth=3))
 
-    # Render Door Clearance & Safe Entry Arc
+    # --- Door Opening & Dotted Swing Arc ---
     door_rect = patches.Rectangle(
         (door["x"], door["y"]), 
         door["dx"], 
         door["dy"], 
         facecolor='#EF5350', 
         edgecolor='#C62828', 
-        linewidth=1.5, 
-        hatch='//', 
-        alpha=0.75
+        linewidth=1.0, 
+        alpha=0.85
     )
     ax.add_patch(door_rect)
-    ax.text(
-        door["x"] + (door["dx"] / 2), 
-        door["y"] + (door["dy"] / 2), 
-        "DOORWAY (CLEAR)", 
-        fontsize=6.5, 
-        color="#FFFFFF", 
-        fontweight='bold', 
-        ha='center', 
-        va='center', 
-        bbox=dict(boxstyle='square,pad=0.15', facecolor='#C62828', edgecolor='none')
-    )
+
+    # Dotted Swing Arc + Door Leaf
+    if door["wall"] == "North":
+        arc = patches.Arc((door["x"], room_w), 2 * door["dx"], 2 * door["dx"], angle=0, theta1=270, theta2=360, color="#C62828", linestyle="--", linewidth=1.2)
+        ax.add_patch(arc)
+        ax.plot([door["x"], door["x"]], [room_w, room_w - door["dx"]], color="#C62828", linewidth=2.0)
+        ax.text(door["x"] + door["dx"] / 2, room_w - 0.35, "DOOR", fontsize=6, color="#C62828", fontweight='bold', ha='center')
+    elif door["wall"] == "South":
+        arc = patches.Arc((door["x"], 0), 2 * door["dx"], 2 * door["dx"], angle=0, theta1=0, theta2=90, color="#C62828", linestyle="--", linewidth=1.2)
+        ax.add_patch(arc)
+        ax.plot([door["x"], door["x"]], [0, door["dx"]], color="#C62828", linewidth=2.0)
+        ax.text(door["x"] + door["dx"] / 2, 0.35, "DOOR", fontsize=6, color="#C62828", fontweight='bold', ha='center')
+    elif door["wall"] == "East":
+        arc = patches.Arc((room_l, door["y"]), 2 * door["dy"], 2 * door["dy"], angle=0, theta1=90, theta2=180, color="#C62828", linestyle="--", linewidth=1.2)
+        ax.add_patch(arc)
+        ax.plot([room_l, room_l - door["dy"]], [door["y"], door["y"]], color="#C62828", linewidth=2.0)
+        ax.text(room_l - 0.35, door["y"] + door["dy"] / 2, "DOOR", fontsize=6, color="#C62828", fontweight='bold', va='center', rotation=90)
+    else:  # West
+        arc = patches.Arc((0, door["y"]), 2 * door["dy"], 2 * door["dy"], angle=0, theta1=0, theta2=90, color="#C62828", linestyle="--", linewidth=1.2)
+        ax.add_patch(arc)
+        ax.plot([0, door["dy"]], [door["y"], door["y"]], color="#C62828", linewidth=2.0)
+        ax.text(0.35, door["y"] + door["dy"] / 2, "DOOR", fontsize=6, color="#C62828", fontweight='bold', va='center', rotation=90)
 
     # Render Fixtures
     for fix in fixtures:
@@ -87,7 +97,7 @@ with col1:
         )
         ax.add_patch(rect)
 
-        # Non-overlapping compact badge
+        # Compact badge
         cat_title = fix["item_data"]["category"].upper()
         dim_label = f"{fix['width']}'×{fix['length']}'"
         ax.text(
@@ -177,3 +187,28 @@ with col2:
         else:
             st.metric("Budget Deficit", f"-₹{abs(res['budget_surplus']):,}", delta_color="inverse")
             st.warning("⚠️ Target budget too tight for selected tier. Increase budget slightly.")
+
+    # --- Architectural Spec Sheet Downloader (.md) ---
+    st.markdown("---")
+    critique_text = st.session_state.get("ai_critique", {}).get("critique", "AI Rationale not generated yet.")
+    
+    spec_summary = f"""# KOHLER AI BATHROOM SPECIFICATION SHEET
+Room Geometry: {room_l} ft x {room_w} ft ({res['room_area_sqft']} sq ft)
+Room Typology: {res.get('room_type', 'Standard Bath')}
+Entrance: {door_wall} Wall | Aesthetic Style: {theme}
+Target Budget: INR {budget:,} | Total Cost: INR {res['total_cost']:,} | Reserve: INR {res['budget_surplus']:,}
+
+## BILL OF MATERIALS (BOM)
+"""
+    for item in res["selected_skus"]:
+        spec_summary += f"- {item['name']} | SKU: {item['sku']} | Price: INR {item['price_inr']:,} | Footprint: {item['width_ft']}' x {item['length_ft']}' | Eco Feature: {item['eco_feature']}\n"
+
+    spec_summary += f"\n## AI ARCHITECTURAL CRITIQUE & SPECIFICATION\n{critique_text}\n"
+
+    st.download_button(
+        label="📄 Download Architectural Specification Sheet (.md)",
+        data=spec_summary,
+        file_name=f"Kohler_Spec_{theme.replace(' ', '_')}_{int(room_l)}x{int(room_w)}.md",
+        mime="text/markdown",
+        use_container_width=True
+    )

@@ -1,5 +1,3 @@
-import json
-from typing import Dict, List, Any
 import os
 import json
 from typing import Dict, List, Any
@@ -22,7 +20,7 @@ def generate_ai_design_critique(
     total_cost: int
 ) -> Dict[str, str]:
     """
-    Calls Google Gemini via the official google-genai SDK to generate 
+    Calls Google Gemini via the google-genai SDK to generate 
     an architectural rationale, lighting & material curation, and sustainability critique.
     Falls back gracefully if the API key is missing or offline.
     """
@@ -55,7 +53,6 @@ Keep your response concise, professional, and directly aligned with Kohler's des
 """
 
     if not api_key or api_key == "your_actual_gemini_api_key_here":
-        # Graceful offline fallback
         return {
             "status": "offline_mode",
             "critique": (
@@ -88,14 +85,14 @@ Keep your response concise, professional, and directly aligned with Kohler's des
                 f"matching {style} styling across all {len(selected_skus)} selected fixtures."
             )
         }
-    
+
 def run_intelligent_recommender(room_l: float, room_w: float, budget: float, style: str) -> Dict[str, Any]:
     catalog = load_catalog()
     area = room_l * room_w
     min_side = min(room_l, room_w)
 
     # 1. Architectural Typology Determination
-    # If space is too tight (< 36 sq ft or min side < 5.5 ft), classify as Powder Room (Half-Bath)
+    # If space is too tight (< 36 sq ft or min side < 5.2 ft), classify as Powder Room (Half-Bath)
     is_powder_room = (area < 36.0) or (min_side < 5.2)
 
     if is_powder_room:
@@ -114,8 +111,6 @@ def run_intelligent_recommender(room_l: float, room_w: float, budget: float, sty
             desired_categories.append("accessory")
 
     # 2. Priority Pruning: Guarantee total_cost <= budget
-    # Priority order to keep: toilet > vanity > faucet > shower > accessory > bathtub
-    # Drop lowest priority first if over budget: bathtub first, then accessory, etc.
     while True:
         bundle, cost = select_optimal_bundle(catalog, desired_categories, budget, style, min_side, area)
         if cost <= budget or len(desired_categories) <= 3:
@@ -187,6 +182,7 @@ def select_optimal_bundle(catalog, categories, budget, style, min_side, area):
 def solve_spatial_layout(room_l: float, room_w: float, selected_items: List[Dict[str, Any]], door_wall: str = "South") -> Dict[str, Any]:
     """
     Collision-Free Wall-Slot Solver:
+    - Standard residential bathroom door: 2.5 ft (calibrated to 2.2 ft for tight powder rooms)
     - Dedicated door swing clearance corridor
     - Wet Zone on opposite wall
     - Opposed flanking walls for Vanity and Toilet
@@ -201,12 +197,12 @@ def solve_spatial_layout(room_l: float, room_w: float, selected_items: List[Dict
     toilet = next((i for i in selected_items if i["category"] == "toilet"), None)
     acc = next((i for i in selected_items if i["category"] == "accessory"), None)
 
-    # Calculate door clearance
-    door_w = min(3.0, room_l * 0.45 if door_wall in ["North", "South"] else room_w * 0.45)
+    # Standard residential bathroom door: 2.5 ft (or 2.2 ft for tight powder rooms)
+    door_w = 2.5 if min(room_l, room_w) >= 6.5 else 2.2
     door = {"wall": door_wall}
 
     if door_wall == "North":
-        door.update({"x": (room_l - door_w) / 2, "y": room_w - 0.25, "dx": door_w, "dy": 0.25})
+        door.update({"x": (room_l - door_w) / 2, "y": room_w - 0.2, "dx": door_w, "dy": 0.2})
         
         # 1. Shower (Bottom-Left / South-West)
         if shower:
@@ -233,9 +229,8 @@ def solve_spatial_layout(room_l: float, room_w: float, selected_items: List[Dict
                     "color": "#B3E5FC"
                 })
 
-        # 3. Vanity (Along West Wall, top-left clear of door)
+        # 3. Vanity (Along West Wall, clear of door)
         if vanity:
-            # If shower exists on bottom-left, place vanity above it or center on clear wall
             vy = room_w - vanity["length_ft"] - margin - 0.5 if shower else (room_w / 2 - vanity["length_ft"] / 2)
             layout.append({
                 "item_data": vanity,
@@ -272,7 +267,7 @@ def solve_spatial_layout(room_l: float, room_w: float, selected_items: List[Dict
             })
 
     elif door_wall == "South":
-        door.update({"x": (room_l - door_w) / 2, "y": 0.0, "dx": door_w, "dy": 0.25})
+        door.update({"x": (room_l - door_w) / 2, "y": 0.0, "dx": door_w, "dy": 0.2})
 
         if shower:
             layout.append({
@@ -328,7 +323,7 @@ def solve_spatial_layout(room_l: float, room_w: float, selected_items: List[Dict
             })
 
     elif door_wall == "East":
-        door.update({"x": room_l - 0.25, "y": (room_w - door_w) / 2, "dx": 0.25, "dy": door_w})
+        door.update({"x": room_l - 0.2, "y": (room_w - door_w) / 2, "dx": 0.2, "dy": door_w})
 
         if shower:
             layout.append({
@@ -380,7 +375,7 @@ def solve_spatial_layout(room_l: float, room_w: float, selected_items: List[Dict
             })
 
     else:  # West
-        door.update({"x": 0.0, "y": (room_w - door_w) / 2, "dx": 0.25, "dy": door_w})
+        door.update({"x": 0.0, "y": (room_w - door_w) / 2, "dx": 0.2, "dy": door_w})
 
         if shower:
             layout.append({
