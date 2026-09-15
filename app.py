@@ -10,7 +10,7 @@ st.caption("AI Research Lab — Spatial Clearance, Dynamic Circulation & Specifi
 
 # --- Sidebar Controls ---
 st.sidebar.header("1. Room Geometry")
-room_l = st.sidebar.slider("Room Length (ft)", min_value=6.0, max_value=20.0, value=11.0, step=0.5)
+room_l = st.sidebar.slider("Room Length (ft)", min_value=6.0, max_value=20.0, value=12.0, step=0.5)
 room_w = st.sidebar.slider("Room Width (ft)", min_value=5.0, max_value=16.0, value=8.5, step=0.5)
 door_wall_choice = st.sidebar.selectbox("Entrance Door Wall", [
     "South (Bottom Wall)", 
