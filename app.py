@@ -1,12 +1,12 @@
 import streamlit as st
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from engine import run_intelligent_recommender, solve_spatial_layout
+from engine import run_llm_recommender, solve_spatial_layout
 
 st.set_page_config(page_title="KOHLER AI Space & Fixture Planner", layout="wide")
 
 st.title("KOHLER AI Bathroom Designer & Space Planner")
-st.caption("AI Research Lab — Spatial Clearance, Dynamic Circulation & Specification Engine")
+st.caption("AI Research Lab — Neuro-Symbolic Agent: Gemini 3.6 Flash Curation + Architectural Clearance Engine")
 
 # --- Sidebar Controls ---
 st.sidebar.header("1. Room Geometry")
@@ -25,13 +25,24 @@ budget = st.sidebar.number_input(
     "Target Budget (₹ INR)", 
     min_value=50000, 
     max_value=2500000, 
-    value=350000, 
+    value=400000, 
     step=25000
 )
 theme = st.sidebar.selectbox("Aesthetic Style", ["Minimalist Modern", "Japanese Zen", "Classic Luxury"])
 
-# Run AI solver
-res = run_intelligent_recommender(room_l, room_w, budget, theme)
+# Run Neuro-Symbolic AI Pipeline
+# Uses cached state to avoid re-querying Gemini on slider changes unless requested
+cache_key = f"{room_l}_{room_w}_{budget}_{theme}_{door_wall}"
+
+if "last_params" not in st.session_state or st.session_state["last_params"] != cache_key:
+    with st.spinner("Gemini 3.6 Flash analyzing Kohler catalog and physical constraints..."):
+        res = run_llm_recommender(room_l, room_w, budget, theme, door_wall)
+        st.session_state["recommendation"] = res
+        st.session_state["last_params"] = cache_key
+else:
+    res = st.session_state["recommendation"]
+
+# Spatial Clearance & Placement Solver
 layout_data = solve_spatial_layout(room_l, room_w, res["selected_skus"], door_wall=door_wall)
 fixtures = layout_data["fixtures"]
 door = layout_data["door"]
@@ -51,7 +62,7 @@ with col1:
     # Room Perimeter
     ax.add_patch(patches.Rectangle((0, 0), room_l, room_w, fill=False, edgecolor='#263238', linewidth=3))
 
-    # --- Door Opening & Dotted Swing Arc ---
+    # Door Opening & Dotted Swing Arc
     door_rect = patches.Rectangle(
         (door["x"], door["y"]), 
         door["dx"], 
@@ -63,7 +74,6 @@ with col1:
     )
     ax.add_patch(door_rect)
 
-    # Dotted Swing Arc + Door Leaf
     if door["wall"] == "North":
         arc = patches.Arc((door["x"], room_w), 2 * door["dx"], 2 * door["dx"], angle=0, theta1=270, theta2=360, color="#C62828", linestyle="--", linewidth=1.2)
         ax.add_patch(arc)
@@ -112,7 +122,7 @@ with col1:
             bbox=dict(boxstyle='round,pad=0.2', facecolor='#FFFFFF', edgecolor='#B0BEC5', alpha=0.9)
         )
 
-        # Faucet pinpoint on vanity
+        # Faucet marker on vanity
         if fix.get("has_faucet"):
             faucet_dot = patches.Circle(
                 (fix["x"] + fix["width"] / 2, fix["y"] + fix["length"] / 2 + 0.3), 
@@ -133,39 +143,17 @@ with col1:
 # --- Column 2: Full Product Specification & BOM ---
 with col2:
     st.subheader("Selected Kohler Bill of Materials")
-    st.info(f"**AI Concept:** {res['design_concept']}")
+    st.caption(f"Engine: **{res['engine_mode']}**")
+    st.info(f"**Design Concept:** {res['design_concept']}")
 
-    # Generative AI Architectural Consultant Layer
-    st.markdown("### 🧠 AI Architectural Consultant")
-    
-    if st.button("Generate Expert Design & Material Rationale", type="primary"):
-        with st.spinner("Consulting Kohler Architectural Knowledge Base..."):
-            from engine import generate_ai_design_critique
-            ai_eval = generate_ai_design_critique(
-                room_l=room_l,
-                room_w=room_w,
-                area=res["room_area_sqft"],
-                budget=budget,
-                style=theme,
-                door_wall=door_wall,
-                selected_skus=res["selected_skus"],
-                total_cost=res["total_cost"]
-            )
-            st.session_state["ai_critique"] = ai_eval
+    # Generative AI Consultant Layer
+    with st.expander("🧠 Kohler AI Architectural & Material Critique", expanded=True):
+        st.markdown(res["ai_critique"])
 
-    if "ai_critique" in st.session_state:
-        status = st.session_state["ai_critique"]["status"]
-        if status == "live_ai":
-            st.success("⚡ Live Gemini AI Architectural Rationale Generated")
-        else:
-            st.caption("ℹ️ Running in localized architectural knowledge mode")
-            
-        st.markdown(st.session_state["ai_critique"]["critique"])
-    
-    # Iterate through ALL chosen items to ensure 100% visibility
+    # Iterate through chosen items
     for idx, item in enumerate(res["selected_skus"], start=1):
         tier_label = item.get("tier", "standard").capitalize()
-        with st.expander(f"{idx}. {item['name']} — ₹{item['price_inr']:,}", expanded=True):
+        with st.expander(f"{idx}. {item['name']} — ₹{item['price_inr']:,}", expanded=False):
             col_a, col_b = st.columns([1, 1])
             with col_a:
                 st.caption(f"**SKU:** `{item['sku']}`")
@@ -175,7 +163,7 @@ with col2:
             st.write(f"🌿 **Eco Feature:** {item['eco_feature']}")
 
     st.markdown("---")
-    
+
     # Budget Summary Card
     metric_col1, metric_col2 = st.columns(2)
     with metric_col1:
@@ -190,13 +178,14 @@ with col2:
 
     # --- Architectural Spec Sheet Downloader (.md) ---
     st.markdown("---")
-    critique_text = st.session_state.get("ai_critique", {}).get("critique", "AI Rationale not generated yet.")
-    
+    critique_text = res.get("ai_critique", "AI Rationale generated via Gemini 3.6 Flash.")
+
     spec_summary = f"""# KOHLER AI BATHROOM SPECIFICATION SHEET
 Room Geometry: {room_l} ft x {room_w} ft ({res['room_area_sqft']} sq ft)
 Room Typology: {res.get('room_type', 'Standard Bath')}
 Entrance: {door_wall} Wall | Aesthetic Style: {theme}
 Target Budget: INR {budget:,} | Total Cost: INR {res['total_cost']:,} | Reserve: INR {res['budget_surplus']:,}
+Engine Mode: {res['engine_mode']}
 
 ## BILL OF MATERIALS (BOM)
 """
