@@ -124,6 +124,33 @@ with col1:
 with col2:
     st.subheader("Selected Kohler Bill of Materials")
     st.info(f"**AI Concept:** {res['design_concept']}")
+
+    # Generative AI Architectural Consultant Layer
+    st.markdown("### 🧠 AI Architectural Consultant")
+    
+    if st.button("Generate Expert Design & Material Rationale", type="primary"):
+        with st.spinner("Consulting Kohler Architectural Knowledge Base..."):
+            from engine import generate_ai_design_critique
+            ai_eval = generate_ai_design_critique(
+                room_l=room_l,
+                room_w=room_w,
+                area=res["room_area_sqft"],
+                budget=budget,
+                style=theme,
+                door_wall=door_wall,
+                selected_skus=res["selected_skus"],
+                total_cost=res["total_cost"]
+            )
+            st.session_state["ai_critique"] = ai_eval
+
+    if "ai_critique" in st.session_state:
+        status = st.session_state["ai_critique"]["status"]
+        if status == "live_ai":
+            st.success("⚡ Live Gemini AI Architectural Rationale Generated")
+        else:
+            st.caption("ℹ️ Running in localized architectural knowledge mode")
+            
+        st.markdown(st.session_state["ai_critique"]["critique"])
     
     # Iterate through ALL chosen items to ensure 100% visibility
     for idx, item in enumerate(res["selected_skus"], start=1):
