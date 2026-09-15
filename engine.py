@@ -8,242 +8,343 @@ def load_catalog() -> List[Dict[str, Any]]:
 def run_intelligent_recommender(room_l: float, room_w: float, budget: float, style: str) -> Dict[str, Any]:
     catalog = load_catalog()
     area = room_l * room_w
-    
-    # 1. Base mandatory components
-    required_cats = ["toilet", "shower", "vanity", "faucet"]
-    
-    # 2. Check if space allows luxury add-ons
-    can_fit_tub = area >= 65.0
-    can_fit_acc = area >= 45.0
+    min_side = min(room_l, room_w)
 
-    # Pick the best combination that does not exceed budget
-    # Try with optional items if budget permits, fallback cleanly if tight
-    test_combinations = []
-    if can_fit_tub and can_fit_acc:
-        test_combinations.append(required_cats + ["bathtub", "accessory"])
-    if can_fit_tub:
-        test_combinations.append(required_cats + ["bathtub"])
-    if can_fit_acc:
-        test_combinations.append(required_cats + ["accessory"])
-    test_combinations.append(required_cats)
+    # 1. Architectural Typology Determination
+    # If space is too tight (< 36 sq ft or min side < 5.5 ft), classify as Powder Room (Half-Bath)
+    is_powder_room = (area < 36.0) or (min_side < 5.2)
 
-    best_selection = None
-    best_cost = 0
+    if is_powder_room:
+        # Mandatory: Toilet + Vanity + Faucet (No Shower to prevent collision)
+        desired_categories = ["toilet", "vanity", "faucet"]
+        room_type_label = "Powder Room Suite (Half-Bath)"
+    else:
+        # Full bath: Shower + Vanity + Toilet + Faucet
+        desired_categories = ["shower", "vanity", "toilet", "faucet"]
+        room_type_label = "Full Architectural Bath"
 
-    for combo in test_combinations:
-        selection = []
-        cost = 0
-        possible = True
+        # Check physical space eligibility for luxury add-ons
+        if min_side >= 8.0 and area >= 80.0:
+            desired_categories.append("bathtub")
+        if min_side >= 6.5 and area >= 50.0:
+            desired_categories.append("accessory")
 
-        for cat in combo:
-            candidates = [c for c in catalog if c["category"] == cat]
-            
-            # Prefer larger vanity for spacious rooms
-            if cat == "vanity" and area >= 80.0:
-                doubles = [c for c in candidates if "Double" in c["name"]]
-                if doubles:
-                    candidates = doubles
+    # 2. Priority Pruning: Guarantee total_cost <= budget
+    # Priority order to keep: toilet > vanity > faucet > shower > accessory > bathtub
+    # Drop lowest priority first if over budget: bathtub first, then accessory, etc.
+    while True:
+        bundle, cost = select_optimal_bundle(catalog, desired_categories, budget, style, min_side, area)
+        if cost <= budget or len(desired_categories) <= 3:
+            break
+        # Drop optional items in priority order
+        if "bathtub" in desired_categories:
+            desired_categories.remove("bathtub")
+        elif "accessory" in desired_categories:
+            desired_categories.remove("accessory")
+        else:
+            break
 
-            # Filter by style if available, else keep all
-            style_matches = [c for c in candidates if style in c["aesthetic_tags"]]
-            pool = style_matches if style_matches else candidates
-            
-            # Sort descending by price to maximize quality
-            pool = sorted(pool, key=lambda x: x["price_inr"], reverse=True)
-            
-            # Find an item that keeps overall cost under budget
-            chosen = None
-            for item in pool:
-                # Estimate conservative budget headroom for remaining categories
-                remaining_cats = len(combo) - len(selection) - 1
-                estimated_reserve = remaining_cats * 15000  # min fallback cost
-                if cost + item["price_inr"] + estimated_reserve <= budget:
-                    chosen = item
-                    break
-            
-            # If still None, take the cheapest item from catalog in this category
-            if not chosen:
-                cheapest = min(candidates, key=lambda x: x["price_inr"])
-                chosen = cheapest
+    # If still over budget, force the absolute lowest entry-tier items
+    if cost > budget:
+        bundle = [min([c for c in catalog if c["category"] == cat], key=lambda x: x["price_inr"]) for cat in desired_categories]
+        cost = sum(x["price_inr"] for x in bundle)
 
-            selection.append(chosen)
-            cost += chosen["price_inr"]
-
-        if cost <= budget:
-            best_selection = selection
-            best_cost = cost
-            break  # Found the most luxurious viable combination
-
-    # Final safeguard: if even the cheapest base set exceeds the budget
-    if not best_selection:
-        best_selection = [min([c for c in catalog if c["category"] == cat], key=lambda x: x["price_inr"]) for cat in required_cats]
-        best_cost = sum(x["price_inr"] for x in best_selection)
-
-    surplus = budget - best_cost
+    surplus = budget - cost
 
     return {
-        "selected_skus": best_selection,
-        "total_cost": best_cost,
+        "selected_skus": bundle,
+        "total_cost": cost,
         "budget_surplus": surplus,
         "room_area_sqft": round(area, 1),
+        "room_type": room_type_label,
         "design_concept": (
-            f"Curated {style} suite for {round(area, 1)} sq ft. "
-            f"Optimized across {len(best_selection)} Kohler fixtures ensuring WaterSense performance and circulation clearances."
+            f"Adaptive {style} {room_type_label} for {round(area, 1)} sq ft. "
+            f"Prioritized {len(bundle)} fixtures with verified circulation envelopes."
         )
     }
 
+def select_optimal_bundle(catalog, categories, budget, style, min_side, area):
+    """Selects best candidate per category matching style and dimensional limits."""
+    selected = []
+    total = 0
+
+    for cat in categories:
+        pool = [c for c in catalog if c["category"] == cat]
+
+        # Dimension constraints
+        if min_side <= 6.0:
+            if cat == "vanity":
+                pool = [c for c in pool if c["length_ft"] <= 2.5] or pool
+            elif cat == "shower":
+                pool = [c for c in pool if c["width_ft"] <= 3.0 and c["length_ft"] <= 3.0] or pool
+
+        # Style matching
+        style_matches = [c for c in pool if style in c["aesthetic_tags"]]
+        candidates = style_matches if style_matches else pool
+        candidates = sorted(candidates, key=lambda x: x["price_inr"], reverse=True)
+
+        # Headroom selection
+        remaining_count = len(categories) - len(selected) - 1
+        reserve = remaining_count * 8000
+
+        chosen = None
+        for item in candidates:
+            if total + item["price_inr"] + reserve <= budget:
+                chosen = item
+                break
+        if not chosen:
+            chosen = min(pool, key=lambda x: x["price_inr"])
+
+        selected.append(chosen)
+        total += chosen["price_inr"]
+
+    return selected, total
+
 def solve_spatial_layout(room_l: float, room_w: float, selected_items: List[Dict[str, Any]], door_wall: str = "South") -> Dict[str, Any]:
     """
-    Dynamically positions fixtures to guarantee 0% clash with the entrance door.
-    The door wall is strictly kept clear of large fixtures.
+    Collision-Free Wall-Slot Solver:
+    - Dedicated door swing clearance corridor
+    - Wet Zone on opposite wall
+    - Opposed flanking walls for Vanity and Toilet
     """
     layout = []
-    
-    # Extract items by category
-    toilet = next((i for i in selected_items if i["category"] == "toilet"), None)
+    margin = 0.4
+
     shower = next((i for i in selected_items if i["category"] == "shower"), None)
+    tub = next((i for i in selected_items if i["category"] == "bathtub"), None)
     vanity = next((i for i in selected_items if i["category"] == "vanity"), None)
     faucet = next((i for i in selected_items if i["category"] == "faucet"), None)
-    tub = next((i for i in selected_items if i["category"] == "bathtub"), None)
+    toilet = next((i for i in selected_items if i["category"] == "toilet"), None)
     acc = next((i for i in selected_items if i["category"] == "accessory"), None)
 
-    # 1. Determine Door Geometry (3.0 ft clearance swing arc)
+    # Calculate door clearance
+    door_w = min(3.0, room_l * 0.45 if door_wall in ["North", "South"] else room_w * 0.45)
     door = {"wall": door_wall}
-    if door_wall == "South":
-        door.update({"x": room_l / 2 - 1.5, "y": 0, "dx": 3.0, "dy": 0.25})
-    elif door_wall == "North":
-        door.update({"x": room_l / 2 - 1.5, "y": room_w - 0.25, "dx": 3.0, "dy": 0.25})
-    elif door_wall == "East":
-        door.update({"x": room_l - 0.25, "y": room_w / 2 - 1.5, "dx": 0.25, "dy": 3.0})
-    else:  # West
-        door.update({"x": 0, "y": room_w / 2 - 1.5, "dx": 0.25, "dy": 3.0})
 
-    # 2. Dynamic Zone Allocation based on Door Wall:
-    # If Door is North -> Wet zone moves to South-West (Bottom-Left)
-    # If Door is South -> Wet zone stays at North-West (Top-Left)
-    # If Door is East  -> Wet zone stays at North-West
-    # If Door is West  -> Wet zone moves to North-East
     if door_wall == "North":
-        wet_corner_x = 0.5
-        wet_corner_y = 0.5
-        tub_y = 0.5
-        vanity_wall = "North-East"  # Away from the North-Center door
-    elif door_wall == "West":
-        wet_corner_x = room_l - (shower["width_ft"] if shower else 3.5) - 0.5
-        wet_corner_y = room_w - (shower["length_ft"] if shower else 3.5) - 0.5
-        tub_y = room_w - (tub["width_ft"] if tub else 2.8) - 0.5
-        vanity_wall = "South"
-    else:
-        # Default for South or East doors: North-West Wet Zone
-        wet_corner_x = 0.5
-        wet_corner_y = room_w - (shower["length_ft"] if shower else 3.5) - 0.5
-        tub_y = room_w - (tub["width_ft"] if tub else 2.8) - 0.5
-        vanity_wall = "East" if door_wall == "South" else "South"
-
-    # Place Shower
-    if shower:
-        layout.append({
-            "item_data": shower,
-            "x": round(wet_corner_x, 2),
-            "y": round(wet_corner_y, 2),
-            "width": shower["width_ft"],
-            "length": shower["length_ft"],
-            "color": "#C5E1A5",
-            "is_fixture": True
-        })
-
-    # Place Bathtub if present (along safe wall, adjacent to wet zone)
-    if tub:
-        if door_wall == "North":
-            # Place horizontally along South wall next to shower
-            tub_x = wet_corner_x + (shower["width_ft"] if shower else 3.5) + 0.8
+        door.update({"x": (room_l - door_w) / 2, "y": room_w - 0.25, "dx": door_w, "dy": 0.25})
+        
+        # 1. Shower (Bottom-Left / South-West)
+        if shower:
             layout.append({
-                "item_data": tub,
-                "x": round(tub_x, 2),
-                "y": 0.5,
-                "width": tub["length_ft"],
-                "length": tub["width_ft"],
-                "color": "#B3E5FC",
-                "is_fixture": True
+                "item_data": shower,
+                "x": margin,
+                "y": margin,
+                "width": shower["width_ft"],
+                "length": shower["length_ft"],
+                "color": "#C5E1A5"
             })
-        else:
-            # Place horizontally along North wall next to shower
-            tub_x = wet_corner_x + (shower["width_ft"] if shower else 3.5) + 0.8
-            if tub_x + tub["length_ft"] <= room_l - 0.5:
+        
+        # 2. Bathtub (Along South wall next to shower)
+        if tub:
+            sh_w = shower["width_ft"] if shower else 0.0
+            tub_x = margin + sh_w + 0.6
+            if tub_x + tub["length_ft"] <= room_l - margin:
                 layout.append({
                     "item_data": tub,
                     "x": round(tub_x, 2),
-                    "y": round(tub_y, 2),
+                    "y": margin,
                     "width": tub["length_ft"],
                     "length": tub["width_ft"],
-                    "color": "#B3E5FC",
-                    "is_fixture": True
+                    "color": "#B3E5FC"
                 })
 
-    # Place Vanity (with fitted faucet)
-    if vanity:
-        if door_wall == "North":
-            # Put along East wall
-            vx = room_l - vanity["width_ft"] - 0.5
-            vy = room_w / 2 - (vanity["length_ft"] / 2)
-            vw, vl = vanity["width_ft"], vanity["length_ft"]
-        elif door_wall == "South":
-            # Put along East wall
-            vx = room_l - vanity["width_ft"] - 0.5
-            vy = room_w / 2 - (vanity["length_ft"] / 2)
-            vw, vl = vanity["width_ft"], vanity["length_ft"]
-        else:
-            # Put along North or South wall
-            vx = 0.6
-            vy = 0.6
-            vw, vl = vanity["length_ft"], vanity["width_ft"]
+        # 3. Vanity (Along West Wall, top-left clear of door)
+        if vanity:
+            # If shower exists on bottom-left, place vanity above it or center on clear wall
+            vy = room_w - vanity["length_ft"] - margin - 0.5 if shower else (room_w / 2 - vanity["length_ft"] / 2)
+            layout.append({
+                "item_data": vanity,
+                "x": margin,
+                "y": max(margin, round(vy, 2)),
+                "width": vanity["width_ft"],
+                "length": vanity["length_ft"],
+                "color": "#FFE082",
+                "has_faucet": True,
+                "faucet_data": faucet
+            })
 
-        layout.append({
-            "item_data": vanity,
-            "x": round(vx, 2),
-            "y": round(vy, 2),
-            "width": vw,
-            "length": vl,
-            "color": "#FFE082",
-            "is_fixture": True,
-            "has_faucet": True,
-            "faucet_data": faucet
-        })
+        # 4. Toilet (Along East Wall, opposite vanity)
+        if toilet:
+            ty = room_w - toilet["length_ft"] - margin - 0.5 if shower else (room_w / 2 - toilet["length_ft"] / 2)
+            layout.append({
+                "item_data": toilet,
+                "x": round(room_l - toilet["width_ft"] - margin, 2),
+                "y": max(margin, round(ty, 2)),
+                "width": toilet["width_ft"],
+                "length": toilet["length_ft"],
+                "color": "#FFCCBC"
+            })
 
-    # Place Toilet (Privacy placement in available clear corner)
-    if toilet:
-        if door_wall == "North":
-            tx = room_l - toilet["width_ft"] - 0.6
-            ty = 0.6
-        elif door_wall == "East":
-            tx = 0.6
-            ty = 0.6
-        else:
-            tx = room_l - toilet["width_ft"] - 0.6
-            ty = 0.6
+        # 5. Accessory
+        if acc:
+            layout.append({
+                "item_data": acc,
+                "x": round(room_l - acc["width_ft"] - margin, 2),
+                "y": margin + 0.8,
+                "width": acc["width_ft"],
+                "length": acc["length_ft"],
+                "color": "#E1BEE7"
+            })
 
-        layout.append({
-            "item_data": toilet,
-            "x": round(tx, 2),
-            "y": round(ty, 2),
-            "width": toilet["width_ft"],
-            "length": toilet["length_ft"],
-            "color": "#FFCCBC",
-            "is_fixture": True
-        })
+    elif door_wall == "South":
+        door.update({"x": (room_l - door_w) / 2, "y": 0.0, "dx": door_w, "dy": 0.25})
 
-    # Place Accessory (Mirror/Towel Rail)
-    if acc:
-        ax_pos = 0.4 if door_wall != "West" else room_l - 0.8
-        ay_pos = room_w / 2 - (acc["length_ft"] / 2)
-        layout.append({
-            "item_data": acc,
-            "x": round(ax_pos, 2),
-            "y": round(ay_pos, 2),
-            "width": acc["width_ft"],
-            "length": acc["length_ft"],
-            "color": "#E1BEE7",
-            "is_fixture": True
-        })
+        if shower:
+            layout.append({
+                "item_data": shower,
+                "x": margin,
+                "y": round(room_w - shower["length_ft"] - margin, 2),
+                "width": shower["width_ft"],
+                "length": shower["length_ft"],
+                "color": "#C5E1A5"
+            })
+        if tub:
+            sh_w = shower["width_ft"] if shower else 0.0
+            tub_x = margin + sh_w + 0.6
+            if tub_x + tub["length_ft"] <= room_l - margin:
+                layout.append({
+                    "item_data": tub,
+                    "x": round(tub_x, 2),
+                    "y": round(room_w - tub["width_ft"] - margin, 2),
+                    "width": tub["length_ft"],
+                    "length": tub["width_ft"],
+                    "color": "#B3E5FC"
+                })
+        if vanity:
+            vy = margin + 0.5 if shower else (room_w / 2 - vanity["length_ft"] / 2)
+            layout.append({
+                "item_data": vanity,
+                "x": margin,
+                "y": max(margin, round(vy, 2)),
+                "width": vanity["width_ft"],
+                "length": vanity["length_ft"],
+                "color": "#FFE082",
+                "has_faucet": True,
+                "faucet_data": faucet
+            })
+        if toilet:
+            ty = margin + 0.5 if shower else (room_w / 2 - toilet["length_ft"] / 2)
+            layout.append({
+                "item_data": toilet,
+                "x": round(room_l - toilet["width_ft"] - margin, 2),
+                "y": max(margin, round(ty, 2)),
+                "width": toilet["width_ft"],
+                "length": toilet["length_ft"],
+                "color": "#FFCCBC"
+            })
+        if acc:
+            layout.append({
+                "item_data": acc,
+                "x": round(room_l - acc["width_ft"] - margin, 2),
+                "y": round(room_w / 2, 2),
+                "width": acc["width_ft"],
+                "length": acc["length_ft"],
+                "color": "#E1BEE7"
+            })
+
+    elif door_wall == "East":
+        door.update({"x": room_l - 0.25, "y": (room_w - door_w) / 2, "dx": 0.25, "dy": door_w})
+
+        if shower:
+            layout.append({
+                "item_data": shower,
+                "x": margin,
+                "y": round(room_w - shower["length_ft"] - margin, 2),
+                "width": shower["width_ft"],
+                "length": shower["length_ft"],
+                "color": "#C5E1A5"
+            })
+        if tub:
+            if tub["width_ft"] + (shower["length_ft"] if shower else 3.0) <= room_w:
+                layout.append({
+                    "item_data": tub,
+                    "x": margin,
+                    "y": margin,
+                    "width": tub["length_ft"],
+                    "length": tub["width_ft"],
+                    "color": "#B3E5FC"
+                })
+        if vanity:
+            layout.append({
+                "item_data": vanity,
+                "x": round(room_l / 2 - vanity["length_ft"] / 2, 2),
+                "y": round(room_w - vanity["width_ft"] - margin, 2),
+                "width": vanity["length_ft"],
+                "length": vanity["width_ft"],
+                "color": "#FFE082",
+                "has_faucet": True,
+                "faucet_data": faucet
+            })
+        if toilet:
+            layout.append({
+                "item_data": toilet,
+                "x": round(room_l / 2 - toilet["width_ft"] / 2, 2),
+                "y": margin,
+                "width": toilet["width_ft"],
+                "length": toilet["length_ft"],
+                "color": "#FFCCBC"
+            })
+        if acc:
+            layout.append({
+                "item_data": acc,
+                "x": margin + 0.5,
+                "y": round(room_w / 2, 2),
+                "width": acc["width_ft"],
+                "length": acc["length_ft"],
+                "color": "#E1BEE7"
+            })
+
+    else:  # West
+        door.update({"x": 0.0, "y": (room_w - door_w) / 2, "dx": 0.25, "dy": door_w})
+
+        if shower:
+            layout.append({
+                "item_data": shower,
+                "x": round(room_l - shower["width_ft"] - margin, 2),
+                "y": round(room_w - shower["length_ft"] - margin, 2),
+                "width": shower["width_ft"],
+                "length": shower["length_ft"],
+                "color": "#C5E1A5"
+            })
+        if tub:
+            if tub["width_ft"] + (shower["length_ft"] if shower else 3.0) <= room_w:
+                layout.append({
+                    "item_data": tub,
+                    "x": round(room_l - tub["length_ft"] - margin, 2),
+                    "y": margin,
+                    "width": tub["length_ft"],
+                    "length": tub["width_ft"],
+                    "color": "#B3E5FC"
+                })
+        if vanity:
+            layout.append({
+                "item_data": vanity,
+                "x": round(room_l / 2 - vanity["length_ft"] / 2, 2),
+                "y": round(room_w - vanity["width_ft"] - margin, 2),
+                "width": vanity["length_ft"],
+                "length": vanity["width_ft"],
+                "color": "#FFE082",
+                "has_faucet": True,
+                "faucet_data": faucet
+            })
+        if toilet:
+            layout.append({
+                "item_data": toilet,
+                "x": round(room_l / 2 - toilet["width_ft"] / 2, 2),
+                "y": margin,
+                "width": toilet["width_ft"],
+                "length": toilet["length_ft"],
+                "color": "#FFCCBC"
+            })
+        if acc:
+            layout.append({
+                "item_data": acc,
+                "x": round(room_l - acc["width_ft"] - margin - 0.5, 2),
+                "y": round(room_w / 2, 2),
+                "width": acc["width_ft"],
+                "length": acc["length_ft"],
+                "color": "#E1BEE7"
+            })
 
     return {"fixtures": layout, "door": door}
