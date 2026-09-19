@@ -62,8 +62,6 @@ with col1:
         alpha=0.85
     )
     ax.add_patch(door_rect)
-
-    # Dotted Swing Arc + Door Leaf
     if door["wall"] == "North":
         arc = patches.Arc((door["x"], room_w), 2 * door["dx"], 2 * door["dx"], angle=0, theta1=270, theta2=360, color="#C62828", linestyle="--", linewidth=1.2)
         ax.add_patch(arc)
@@ -96,8 +94,6 @@ with col1:
             linewidth=1.6
         )
         ax.add_patch(rect)
-
-        # Compact badge
         cat_title = fix["item_data"]["category"].upper()
         dim_label = f"{fix['width']}'×{fix['length']}'"
         ax.text(
@@ -112,7 +108,6 @@ with col1:
             bbox=dict(boxstyle='round,pad=0.2', facecolor='#FFFFFF', edgecolor='#B0BEC5', alpha=0.9)
         )
 
-        # Faucet marker on vanity
         if fix.get("has_faucet"):
             faucet_dot = patches.Circle(
                 (fix["x"] + fix["width"] / 2, fix["y"] + fix["length"] / 2 + 0.3), 

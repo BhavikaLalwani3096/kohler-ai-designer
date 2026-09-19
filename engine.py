@@ -9,9 +9,7 @@ def load_catalog() -> List[Dict[str, Any]]:
     with open("catalog.json", "r") as f:
         return json.load(f)
 
-# =========================================================================
 # ON-DEMAND AI ARCHITECTURAL CONSULTANT (Triggered ONLY via user button)
-# =========================================================================
 def generate_ai_design_critique(
     room_l: float, 
     room_w: float, 
@@ -85,9 +83,7 @@ Keep your response concise, professional, and directly aligned with Kohler's des
             "critique": f"AI Engine Notice: {str(e)}\n\n(Rate limit active. Please test again in a minute or review local architectural specs.)"
         }
 
-# =========================================================================
 # DETERMINISTIC HIGH-SPEED RECOMMENDATION & SPATIAL ENGINE
-# =========================================================================
 def run_intelligent_recommender(room_l: float, room_w: float, budget: float, style: str) -> Dict[str, Any]:
     catalog = load_catalog()
     area = round(room_l * room_w, 1)
@@ -165,8 +161,6 @@ def solve_spatial_layout(room_l: float, room_w: float, selected_items: List[Dict
     faucet = next((i for i in selected_items if i["category"] == "faucet"), None)
     toilet = next((i for i in selected_items if i["category"] == "toilet"), None)
     acc = next((i for i in selected_items if i["category"] == "accessory"), None)
-
-    # Standard residential bathroom door: 2.5 ft (down to 2.2 ft for tight powder rooms)
     door_w = 2.5 if min(room_l, room_w) >= 6.5 else 2.2
     door = {"wall": door_wall}
 
